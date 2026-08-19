@@ -1,0 +1,57 @@
+---
+# INET 4031 Challenge Track 4: Machine Learning and AI - Week 11 Extension
+# This playbook extends the root ansible/site.yml with track-specific Week 11 roles.
+#
+# Role path includes week-11/ansible/roles for easy maintenance and week-by-week
+# role development in the Challenge Track structure.
+#
+# Usage:
+#   From root of repository:
+#   ansible-playbook -i ansible/inventory week-11/ansible/site.yml --check
+#   ansible-playbook -i ansible/inventory week-11/ansible/site.yml
+
+- name: Configure Machine Learning and AI Infrastructure (Challenge Track 4 - Week 11)
+  hosts: localhost
+  connection: local
+  become: yes
+
+  vars:
+    mlflow_host: 0.0.0.0
+    mlflow_port: 5001
+    fastapi_host: 0.0.0.0
+    fastapi_port: 8000
+
+  roles:
+    - mlflow
+
+  # Verification tasks
+  tasks:
+    - name: Verify MLflow is running
+      uri:
+        url: http://localhost:5001/health
+        method: GET
+        status_code: 200
+      retries: 5
+      delay: 2
+      register: mlflow_check
+      tags:
+        - verify
+
+    - name: Verify FastAPI is running
+      uri:
+        url: http://localhost:8000/health
+        method: GET
+        status_code: 200
+      retries: 5
+      delay: 2
+      register: fastapi_check
+      tags:
+        - verify
+
+    - name: Display verification results
+      debug:
+        msg: |
+          MLflow Status: {{ mlflow_check.status }}
+          FastAPI Status: {{ fastapi_check.status }}
+      tags:
+        - verify
