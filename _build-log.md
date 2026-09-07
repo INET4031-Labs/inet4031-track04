@@ -39,16 +39,10 @@ track-04-machine-learning-and-ai/
 │       └── templates/
 │           ├── mlflow.service.j2      # MLflow systemd template
 │           └── fastapi.service.j2     # FastAPI systemd template
-├── docs/
-│   ├── environment-log.md             # Environment tracking
-│   ├── week-10-acceptance-criteria.md
-│   ├── week-11-acceptance-criteria.md
-│   ├── week-12-acceptance-criteria.md
-│   ├── week-13-acceptance-criteria.md
-│   ├── week-14-acceptance-criteria.md
-│   ├── sprint-5-retrospective.md      # Week 10 sprint close
-│   ├── sprint-6-retrospective.md      # Week 11-12 sprint close
-│   └── sprint-7-retrospective.md      # Week 13-14 sprint close
+├── docs/                               # (consolidated to a standardized scheme in a later pass —
+│   │                                   #  see "Documentation Templates" below for the current layout)
+│   ├── qa-report-10.md .. qa-report-14.md
+│   └── sprint-10-retrospective.md .. sprint-14-retrospective.md
 ├── scripts/
 │   ├── check-week-10.sh               # Week 10 validation
 │   ├── check-week-11.sh               # Week 11 validation
@@ -80,15 +74,11 @@ track-04-machine-learning-and-ai/
 - ✓ `week-14/README.md` - Container wipe, Ansible rebuild, demo execution
 
 ### Documentation Templates
-- ✓ `docs/environment-log.md` - Track all system state across weeks
-- ✓ `docs/week-10-acceptance-criteria.md` - Week 10 sign-off checklist
-- ✓ `docs/week-11-acceptance-criteria.md` - Week 11 sign-off checklist
-- ✓ `docs/week-12-acceptance-criteria.md` - Week 12 sign-off checklist
-- ✓ `docs/week-13-acceptance-criteria.md` - Week 13 sign-off checklist
-- ✓ `docs/week-14-acceptance-criteria.md` - Week 14 sign-off checklist
-- ✓ `docs/sprint-5-retrospective.md` - Sprint 5 (Week 10) close
-- ✓ `docs/sprint-6-retrospective.md` - Sprint 6 (Weeks 11-12) close
-- ✓ `docs/sprint-7-retrospective.md` - Sprint 7 (Weeks 13-14) close
+- **Superseded note:** the acceptance-criteria/environment-log files and the
+  sprint-5/6/7-numbered scheme originally listed here were replaced in a later pass
+  with one minimal, standardized set: `docs/qa-report-10.md` through `qa-report-14.md`
+  and `docs/sprint-10-retrospective.md` through `sprint-14-retrospective.md`, each tied
+  to its actual week number instead of a sprint number.
 
 ### Ansible Infrastructure
 - ✓ `ansible/inventory` - Localhost inventory
@@ -199,7 +189,7 @@ track-04-machine-learning-and-ai/
 As per course rules, Weeks 10-14 are flagged as needing re-evaluation with the professor before finalization. This scaffold is a framework, not a finished deliverable.
 
 ### Container Architecture
-The scaffold assumes Docker containers can run in privileged mode (`--privileged`). This has not been confirmed by the professor.
+The scaffold assumes Docker containers can run in privileged mode (`--privileged`). This has since been confirmed by the professor.
 
 ### Technology Choices
 - **MLflow**: For experiment tracking and model registry
@@ -329,8 +319,10 @@ The track is designed for teams of 3-4 students with one ML specialist, one back
 - Replaced all instances of `localhost:5000` → `localhost:8080`
 - Updated connection strings in `week-11/README.md`, `week-12/README.md`, `week-13/README.md`, `week-14/README.md`
 - Updated psql commands in `week-13/README.md` and `week-14/README.md`
-- Updated `docs/environment-log.md` database configuration
-- Updated `docs/week-13-acceptance-criteria.md` and `docs/week-14-acceptance-criteria.md`
+- Updated the environment-log database configuration (that file was later consolidated
+  into `docs/sprint-13-retrospective.md`/`sprint-14-retrospective.md`)
+- Updated the week-13/week-14 acceptance-criteria checklists (later consolidated into
+  `docs/qa-report-13.md`/`qa-report-14.md`)
 
 **Reason:** Real baseline uses database "statustracker", user "appuser", Flask port 8080.
 
@@ -355,9 +347,8 @@ The track is designed for teams of 3-4 students with one ML specialist, one back
 - `week-12/README.md`
 - `week-13/README.md`
 - `week-14/README.md`
-- `docs/environment-log.md`
-- `docs/week-13-acceptance-criteria.md`
-- `docs/week-14-acceptance-criteria.md`
+- environment-log.md (later consolidated into `docs/sprint-13/14-retrospective.md`)
+- week-13/week-14 acceptance-criteria.md (later consolidated into `docs/qa-report-13/14.md`)
 - `ansible/site.yml`
 
 **Remediation Status:** ✓ COMPLETE

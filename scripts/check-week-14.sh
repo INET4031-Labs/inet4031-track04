@@ -16,10 +16,10 @@ PASSED=0
 check_file() {
     if [ -f "$1" ]; then
         echo "[PASS] File exists: $1"
-        ((PASSED++))
+        PASSED=$((PASSED + 1))
     else
         echo "[FAIL] File missing: $1"
-        ((FAILED++))
+        FAILED=$((FAILED + 1))
     fi
 }
 
@@ -38,9 +38,8 @@ echo ""
 
 # Check final documentation
 echo "3. Checking final documentation..."
-check_file "docs/sprint-7-retrospective.md"
-check_file "docs/week-14-acceptance-criteria.md"
-check_file "docs/environment-log.md"
+check_file "docs/qa-report-14.md"
+check_file "docs/sprint-14-retrospective.md"
 echo ""
 
 # Verify all services are running after rebuild
@@ -52,7 +51,7 @@ if curl -s http://localhost:5001/health | grep -q '"status"'; then
     ((SERVICES_OK++))
 else
     echo "[FAIL] MLflow service not running"
-    ((FAILED++))
+    FAILED=$((FAILED + 1))
 fi
 
 if curl -s http://localhost:8000/health | grep -q '"status"'; then
@@ -60,11 +59,11 @@ if curl -s http://localhost:8000/health | grep -q '"status"'; then
     ((SERVICES_OK++))
 else
     echo "[FAIL] FastAPI service not running"
-    ((FAILED++))
+    FAILED=$((FAILED + 1))
 fi
 
 if [ "$SERVICES_OK" -eq 2 ]; then
-    ((PASSED++))
+    PASSED=$((PASSED + 1))
 fi
 echo ""
 
@@ -72,10 +71,10 @@ echo ""
 echo "5. Checking model is registered..."
 if python3 -c "import mlflow; mlflow.set_tracking_uri('http://localhost:5001'); models = mlflow.search_registered_models(); print('Found', len(models), 'models')" 2>/dev/null | grep -q "Found"; then
     echo "[PASS] Model found in MLflow registry"
-    ((PASSED++))
+    PASSED=$((PASSED + 1))
 else
     echo "[FAIL] No model found in MLflow registry (may need to retrain)"
-    ((FAILED++))
+    FAILED=$((FAILED + 1))
 fi
 echo ""
 
@@ -84,10 +83,10 @@ echo "6. Testing end-to-end pipeline..."
 if [ -f "week-12/test-pipeline.sh" ]; then
     if bash week-12/test-pipeline.sh > /tmp/pipeline-test.log 2>&1; then
         echo "[PASS] End-to-end pipeline test passed"
-        ((PASSED++))
+        PASSED=$((PASSED + 1))
     else
         echo "[FAIL] End-to-end pipeline test failed"
-        ((FAILED++))
+        FAILED=$((FAILED + 1))
         echo "  See: cat /tmp/pipeline-test.log"
     fi
 else
@@ -100,16 +99,16 @@ echo "7. Checking git repository status..."
 if [ -d ".git" ]; then
     if git status | grep -q "working tree clean"; then
         echo "[PASS] Git working tree is clean"
-        ((PASSED++))
+        PASSED=$((PASSED + 1))
     else
         echo "[FAIL] Git has uncommitted changes"
-        ((FAILED++))
+        FAILED=$((FAILED + 1))
         echo "  Uncommitted files:"
         git status --short | sed 's/^/    /'
     fi
 else
     echo "[FAIL] Git repository not initialized"
-    ((FAILED++))
+    FAILED=$((FAILED + 1))
 fi
 echo ""
 

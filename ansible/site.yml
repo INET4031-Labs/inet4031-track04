@@ -24,13 +24,12 @@
   become: yes
 
   tasks:
-    - name: Update apt cache
-      apt:
+    - name: Update dnf cache
+      dnf:
         update_cache: yes
-        cache_valid_time: 3600
 
     - name: Ensure baseline packages are installed
-      apt:
+      dnf:
         name:
           - curl
           - git
@@ -39,10 +38,56 @@
           - python3-pip
         state: present
 
-    - name: Ensure Docker is installed
-      apt:
-        name: docker.io
+    - name: Ensure EPEL repository is enabled
+      dnf:
+        name: https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
         state: present
+        disable_gpg_check: yes
+
+    - name: Ensure Ansible is installed
+      dnf:
+        name: ansible-core
+        state: present
+
+    - name: Import Docker CE GPG key
+      ansible.builtin.rpm_key:
+        key: https://download.docker.com/linux/rhel/gpg
+        state: present
+
+    - name: Add Docker CE repository
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/rhel/docker-ce.repo
+        dest: /etc/yum.repos.d/docker-ce.repo
+        mode: '0644'
+
+    - name: Remove podman-docker (conflicts with docker-ce's docker binary)
+      dnf:
+        name:
+          - podman-docker
+          - podman
+        state: absent
+
+    - name: Ensure Docker is installed
+      dnf:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-compose-plugin
+        state: present
+        update_cache: yes
+
+    - name: Ensure Docker service is enabled and running
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Add invoking user to the docker group
+      ansible.builtin.user:
+        name: "{{ lookup('env', 'SUDO_USER') or lookup('env', 'USER') }}"
+        groups: docker
+        append: yes
 
 - name: Deploy application stack
   hosts: localhost

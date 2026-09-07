@@ -9,44 +9,60 @@ Your track repo does NOT copy these — it integrates with them. Ensure your Wee
 
 ---
 
-# Week 11: Core Build - MLflow and Model Training
+## Week 11: Core Build - MLflow and Model Training
 
 **Sprint 6 | Asynchronous**
 
-## Overview
+### Overview
 
-Week 11 is the core build phase. Your team will install MLflow, set up a tracking server,
-write a data preparation and model training pipeline, and log your first trained model
-to MLflow with full metrics and artifacts. The MLflow UI should display a complete run
-with a registered model ready for serving in Week 12.
+Week 11 is the core build phase. Working async this week, your team will install
+MLflow, stand up the tracking server, build a data-preparation and training pipeline
+against the real `incidents` table, and log your first trained model with metrics and
+artifacts. By the end of this week, the MLflow UI should show a complete run with a
+registered model, and your Ansible role should be able to reproduce the MLflow server
+from a clean container.
 
 By the end of this week, you will have:
 
 1. MLflow tracking server running and accessible at `http://localhost:5001`
-2. A Python training pipeline that reads incidents from PostgreSQL (statustracker database)
-3. A trained scikit-learn model logged to MLflow with metrics (incident status classifier)
+2. A Python training pipeline that reads incidents from PostgreSQL (`statustracker` database)
+3. A trained scikit-learn model logged to MLflow with metrics, matching the target you chose in your Week 10 ADR
 4. A model registered in the MLflow Model Registry
-5. The beginning of an Ansible role that installs MLflow
+5. `ansible/roles/mlflow/` verified end-to-end for the MLflow half of the pipeline
 
-## Prerequisites
+### Learning Objectives
 
-- Week 10 architecture decision and backlog completed
-- Docker container with PostgreSQL running and incidents table populated (from Week 2)
-- Flask application running (from Weeks 1-9)
-- Python 3.8+ installed in container
-- pip package manager available
+- Stand up an MLflow tracking server with a file-based backend store
+- Build a data pipeline that queries PostgreSQL and prepares features for scikit-learn
+- Train, evaluate, and log a model run to MLflow with metrics and artifacts
+- Register a model in the MLflow Model Registry and load it back programmatically
+- Extend an Ansible role so a systemd-managed service survives a container rebuild
 
-## Part 1: Install MLflow (30 min)
+### Prerequisites
 
-### Step 1: Install MLflow and Dependencies
+- Week 10 architecture decision (`week-10/adr.md`) and backlog (`week-11/backlog.md`) completed
+- Docker container with PostgreSQL running and `incidents` table populated (from Week 2/Week 9 seeding, ~50,000 rows)
+- Flask application running on the Compose stack (`localhost:8080`)
+- Python 3.8+ and `pip` available in the container
 
-In your container, install MLflow and scikit-learn:
+### Async Sprint Work
+
+This is an asynchronous sprint week — coordinate through your backlog and check in with
+your team async (chat, PR reviews, standup notes) rather than a single synchronous
+block. Work through the parts below in order; each depends on the previous one
+producing a running service or a working script.
+
+---
+
+### Part 1: Install and Start MLflow
+
+**Step 1.** Install MLflow and its dependencies in your container.
 
 ```bash
 pip install mlflow scikit-learn pandas sqlalchemy psycopg2-binary
 ```
 
-Verify installation:
+Verify:
 
 ```bash
 mlflow --version
@@ -54,131 +70,78 @@ python3 -c "import mlflow; print('MLflow version:', mlflow.version.VERSION)"
 python3 -c "import sklearn; print('scikit-learn version:', sklearn.__version__)"
 ```
 
-### Step 2: Start MLflow Tracking Server
-
-Launch the MLflow tracking server on port 5001:
+**Step 2.** Start the MLflow tracking server on the pinned port (**5001**), with a
+file-based backend store unless your ADR called for PostgreSQL-backed storage:
 
 ```bash
 mlflow server --host 0.0.0.0 --port 5001 --backend-store-uri file:./mlflow --default-artifact-root ./mlflow/artifacts
 ```
 
-The command will display output like:
-
-```
-[YYYY-MM-DD HH:MM:SS +0000] [123456] [INFO] Starting gunicorn 20.x.x
-[YYYY-MM-DD HH:MM:SS +0000] [123456] [INFO] Listening at: http://0.0.0.0:5001
-```
-
-### Step 3: Verify MLflow is Accessible
-
-In another terminal, verify the server is running:
+**Step 3.** Verify the server is reachable:
 
 ```bash
 curl -s http://localhost:5001/health
 ```
 
-Expected output:
+Expected: `{"status":"ok"}`. Open `http://localhost:5001/` in a browser — it will be
+empty until you log your first run.
 
-```json
-{"status":"ok"}
-```
+---
 
-Or, open a browser and navigate to `http://localhost:5001/` to see the MLflow UI
-(though you will see it is empty until you log experiments).
+### Part 2: Prepare Training Data from PostgreSQL
 
-## Part 2: Prepare Training Data from PostgreSQL (45 min)
-
-### Step 1: Write a Data Fetch Script
-
-Create a file `week-11/fetch-incidents.py`:
+**Step 1.** Write `week-11/fetch-incidents.py` to pull the real `incidents` table and
+confirm the data matches what your ADR assumed. Use the established connection pattern:
 
 ```python
 import pandas as pd
 from sqlalchemy import create_engine
 
-# Connect to PostgreSQL
-# ASSUMPTION: PostgreSQL is running on localhost:5432
-# Database: statustracker, User: appuser (established in Week 2)
-engine = create_engine(
-    "postgresql://appuser:changeme@localhost:5432/statustracker"
-)
+# Database, user, and password follow the Week 2 baseline (appuser/changeme)
+engine = create_engine("postgresql://appuser:changeme@localhost:5432/statustracker")
 
-# Query incidents table
 query = """
-SELECT 
-    id,
-    title,
-    description,
-    status,
-    created_at
+SELECT id, title, description, status, created_at
 FROM incidents
 ORDER BY created_at
 """
 
 df = pd.read_sql(query, con=engine)
-
 print(f"Loaded {len(df)} incidents")
-print(df.head())
-print(df.info())
-
+print(df['status'].value_counts())
 df.to_csv("incidents_data.csv", index=False)
-print("Saved to incidents_data.csv")
 ```
 
-ASSUMPTION: Your PostgreSQL database and user match the Week 2 baseline:
-- Database: `statustracker` (established in Week 2)
-- User: `appuser` (established in Week 2)
-- Password: `changeme` (default; update if different)
-- Host: `localhost`
-- Port: `5432`
+Remember: the table has `id, title, description, status, created_at` and nothing else —
+no `severity`, `resolved_at`, or `assigned_to`. If your training pipeline needs a
+different target column, this is where you build/derive it, exactly as you specified in
+your ADR.
 
-Note: The incidents table contains columns: id, title, description, status, created_at.
-There are no severity, resolved_at, or assigned_to columns.
-
-### Step 2: Test the Data Fetch
-
-Run the script:
+**Step 2.** Run it and confirm row counts and a sane class balance for whatever target
+you chose:
 
 ```bash
 cd week-11
 python3 fetch-incidents.py
 ```
 
-Expected output:
+If the connection fails, check that PostgreSQL is running, the connection string matches
+your setup, and the `incidents` table has data. Document any issues in
+`docs/sprint-11-retrospective.md`.
 
-```
-Loaded 42 incidents
-   id              title  ...          resolved_at  assigned_to
-0   1  High CPU Usage  ...  2026-08-15 10:30:00  alice
-...
-```
+---
 
-If you see an error connecting to PostgreSQL, verify:
+### Part 3: Build the Training Pipeline
 
-1. PostgreSQL container is running: `docker ps | grep postgres`
-2. Connection string matches your setup
-3. Incidents table exists and has data
+Build `week-11/train-model.py`: load data, engineer features per your ADR, split
+train/test, train a scikit-learn model, and log everything to MLflow.
 
-Document any connection or data issues in `docs/environment-log.md`.
-
-## Part 3: Build the Training Pipeline (1.5 hours)
-
-### Step 1: Feature Engineering Script
-
-Create a file `week-11/train-model.py` that:
-
-1. Loads incidents data from PostgreSQL
-2. Selects features based on your Week 10 architecture decision
-3. Prepares labels (target variable)
-4. Splits data into train/test sets
-5. Trains a scikit-learn model
-6. Logs to MLflow
-
-Here is a template for an **incident status classifier** (predicts open vs. resolved):
+If your team went with the recommended default (resolution-status classifier), the
+shape of the pipeline looks like this — adapt the feature engineering, estimator, and
+hyperparameters to your own design rather than copying this verbatim:
 
 ```python
 import pandas as pd
-import numpy as np
 from sqlalchemy import create_engine
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -188,384 +151,150 @@ from sklearn.pipeline import Pipeline
 import mlflow
 import mlflow.sklearn
 
-# Connect to PostgreSQL and fetch data
-engine = create_engine(
-    "postgresql://appuser:changeme@localhost:5432/statustracker"
-)
+engine = create_engine("postgresql://appuser:changeme@localhost:5432/statustracker")
+df = pd.read_sql("SELECT title, description, status FROM incidents ORDER BY created_at", con=engine)
 
-query = """
-SELECT title, description, status
-FROM incidents
-ORDER BY created_at
-"""
-
-df = pd.read_sql(query, con=engine)
-
-print(f"Loaded {len(df)} incidents")
-print(df['status'].value_counts())
-
-# Feature engineering: combine title and description
 df['text'] = df['title'] + ' ' + df['description'].fillna('')
-X = df['text']
-y = df['status']
+X, y = df['text'], df['status']
 
-# Train/test split
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42, stratify=y
 )
 
-print(f"Train set: {len(X_train)}, Test set: {len(X_test)}")
-
-# Set MLflow experiment
 mlflow.set_experiment("incident-status-classifier")
 
-# Start a new run
 with mlflow.start_run() as run:
-    # Log parameters
     mlflow.log_param("model_type", "RandomForest")
     mlflow.log_param("max_depth", 10)
     mlflow.log_param("n_estimators", 100)
-    
-    # Create pipeline with TF-IDF vectorizer and classifier
+
     pipeline = Pipeline([
         ('tfidf', TfidfVectorizer(max_features=100, ngram_range=(1, 2))),
         ('rf', RandomForestClassifier(max_depth=10, n_estimators=100, random_state=42))
     ])
-    
-    # Train model
     pipeline.fit(X_train, y_train)
-    
-    # Make predictions
     y_pred = pipeline.predict(X_test)
-    
-    # Compute metrics
-    accuracy = accuracy_score(y_test, y_pred)
-    precision = precision_score(y_test, y_pred, average='weighted', zero_division=0)
-    recall = recall_score(y_test, y_pred, average='weighted', zero_division=0)
-    f1 = f1_score(y_test, y_pred, average='weighted', zero_division=0)
-    
-    # Log metrics to MLflow
-    mlflow.log_metric("accuracy", accuracy)
-    mlflow.log_metric("precision", precision)
-    mlflow.log_metric("recall", recall)
-    mlflow.log_metric("f1", f1)
-    
-    # Log the model
-    mlflow.sklearn.log_model(pipeline, "model")
-    
-    print(f"Run {run.info.run_id} logged:")
-    print(f"  Accuracy: {accuracy:.4f}")
-    print(f"  Precision: {precision:.4f}")
-    print(f"  Recall: {recall:.4f}")
-    print(f"  F1: {f1:.4f}")
 
-# Register the model
+    mlflow.log_metric("accuracy", accuracy_score(y_test, y_pred))
+    mlflow.log_metric("precision", precision_score(y_test, y_pred, average='weighted', zero_division=0))
+    mlflow.log_metric("recall", recall_score(y_test, y_pred, average='weighted', zero_division=0))
+    mlflow.log_metric("f1", f1_score(y_test, y_pred, average='weighted', zero_division=0))
+
+    mlflow.sklearn.log_model(pipeline, "model")
+
 model_uri = f"runs/{run.info.run_id}/model"
 mlflow.register_model(model_uri, "incident-status-classifier")
-print(f"Model registered as 'incident-status-classifier'")
 ```
 
-NOTE: This model predicts incident status (open/resolved) based on the incident title and
-description. The Week 1-9 baseline schema does not include severity, resolved_at, or
-assigned_to columns, so severity classifiers and time-to-resolution predictors are not
-feasible with the available data.
+**If your team chose a different target** (a derived label rather than `status`),
+substitute your own feature/label construction here, but keep the same MLflow logging
+shape: `mlflow.set_experiment(...)`, `mlflow.start_run()`, `log_param`/`log_metric`,
+`mlflow.sklearn.log_model(...)`, and `mlflow.register_model(...)`. Name your experiment
+and registered model to match what you predict — don't call it a "severity classifier"
+if there's no severity label backing it.
 
-### Step 2: Run the Training Pipeline
-
-Execute the training script:
+Run it:
 
 ```bash
 python3 train-model.py
 ```
 
-Expected output (status classifier):
+If you hit errors, check PostgreSQL connectivity, the database/user match Week 2 setup,
+the `incidents` table has data, MLflow is running on 5001, and all pip packages are
+installed.
 
-```
-Loaded 50000 incidents
-resolved    12500
-open        37500
-Train set: 40000, Test set: 10000
-Run abc123def456 logged:
-  Accuracy: 0.7234
-  Precision: 0.7156
-  Recall: 0.7234
-  F1: 0.7195
-Model registered as 'incident-status-classifier'
-```
+---
 
-If you see errors, check:
+### Part 4: Verify the Model in the MLflow UI
 
-1. PostgreSQL is running and connection string is correct
-2. Database is statustracker and user is appuser (from Week 2 setup)
-3. Incidents table has data (50,000 rows from Week 9 seeding)
-4. MLflow server is running on port 5001
-5. All pip packages are installed
+Open `http://localhost:5001/` and confirm:
 
-## Part 4: Verify Model in MLflow UI (15 min)
+1. Your experiment appears with a run showing your logged metrics
+2. The "Artifacts" tab shows the logged model
+3. The "Models" tab shows your registered model with a version
 
-### Step 1: Access MLflow UI
-
-Open a browser and navigate to `http://localhost:5001/`
-
-You should see:
-
-1. An experiment named `incident-status-classifier`
-2. A run with your metrics displayed
-3. An "Artifacts" tab showing the logged model artifacts
-
-### Step 2: Register Model Version
-
-In the MLflow UI, navigate to the "Models" tab in the left sidebar. You should see
-your registered model `incident-status-classifier` with a model version.
-
-If the model is not registered, register it manually from the CLI:
+If the model isn't registered, check from the CLI:
 
 ```bash
 mlflow models list
-mlflow models describe incident-status-classifier
+mlflow models describe <your-model-name>
 ```
 
-## Part 5: Document in Environment Log
-
-Update `docs/environment-log.md` with:
-
-1. MLflow server version and host/port
-2. Model name and version
-3. Training script location and execution time
-4. Metrics captured
-5. Any data quality issues encountered
-6. PostgreSQL connection details and row count
-
-Template entry:
-
-```markdown
-### Week 11: MLflow and Model Training
-
-**MLflow Tracking Server:**
-- Version: [output of mlflow --version]
-- Host: 0.0.0.0
-- Port: 5001
-- Backend: file:./mlflow
-- Status: Running
-
-**Model Training:**
-- Model name: incident-status-classifier
-- Training script: week-11/train-model.py
-- Features: title and description (TF-IDF vectorized)
-- Target: status (open or resolved)
-- Data points: ~50,000 incidents
-- Train/test split: 80/20
-- Execution time: [minutes]
-
-**Metrics:**
-- Accuracy/MAE: [value]
-- Precision/RMSE: [value]
-- Recall/R2: [value]
-- F1/Other: [value]
-
-**Artifacts:**
-- Model location: mlflow/artifacts/[run_id]/model
-- Model type: scikit-learn pipeline
-```
-
-## Part 6: Implement Ansible Role for MLflow
-
-### Step 1: Create Role Tasks
-
-Create `ansible/roles/mlflow/tasks/main.yml`:
-
-```yaml
 ---
-- name: Install MLflow and dependencies
-  pip:
-    name:
-      - mlflow
-      - scikit-learn
-      - pandas
-      - sqlalchemy
-      - psycopg2-binary
-    state: present
-  become: yes
 
-- name: Create MLflow data directory
-  file:
-    path: /opt/mlflow
-    state: directory
-    owner: root
-    group: root
-    mode: '0755'
-  become: yes
+### Part 5: Extend the Ansible Role for MLflow
 
-- name: Create MLflow artifacts directory
-  file:
-    path: /opt/mlflow/artifacts
-    state: directory
-    owner: root
-    group: root
-    mode: '0755'
-  become: yes
-
-- name: Deploy MLflow systemd service
-  template:
-    src: mlflow.service.j2
-    dest: /etc/systemd/system/mlflow.service
-    owner: root
-    group: root
-    mode: '0644'
-  become: yes
-  notify: Restart MLflow service
-
-- name: Enable and start MLflow service
-  systemd:
-    name: mlflow
-    enabled: yes
-    state: started
-    daemon_reload: yes
-  become: yes
-```
-
-### Step 2: Create Handler
-
-Create `ansible/roles/mlflow/handlers/main.yml`:
-
-```yaml
----
-- name: Restart MLflow service
-  systemd:
-    name: mlflow
-    state: restarted
-  become: yes
-```
-
-### Step 3: Create Service Template
-
-Create `ansible/roles/mlflow/templates/mlflow.service.j2`:
-
-```ini
-[Unit]
-Description=MLflow Tracking Server
-After=network.target
-
-[Service]
-Type=simple
-User=root
-WorkingDirectory=/opt/mlflow
-ExecStart=/usr/bin/python3 -m mlflow server \
-  --host 0.0.0.0 \
-  --port 5001 \
-  --backend-store-uri file:/opt/mlflow \
-  --default-artifact-root /opt/mlflow/artifacts
-Restart=on-failure
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-```
-
-### Step 4: Create Defaults and Vars
-
-Create `ansible/roles/mlflow/defaults/main.yml`:
-
-```yaml
----
-mlflow_host: 0.0.0.0
-mlflow_port: 5001
-mlflow_data_dir: /opt/mlflow
-mlflow_artifacts_dir: /opt/mlflow/artifacts
-```
-
-Create `ansible/roles/mlflow/vars/main.yml`:
-
-```yaml
----
-# Variables specific to MLflow role (can be overridden)
-mlflow_packages:
-  - mlflow
-  - scikit-learn
-  - pandas
-  - sqlalchemy
-  - psycopg2-binary
-```
-
-## Part 7: Test Ansible Role
-
-Add the MLflow role to your site.yml (if not already present):
-
-In `ansible/site.yml`, ensure the mlflow role is included:
-
-```yaml
----
-- hosts: all
-  roles:
-    # ... other roles from Weeks 1-9 ...
-    - mlflow
-```
-
-Test the playbook in dry-run mode:
+`ansible/roles/mlflow/` already contains a working reference implementation covering
+both MLflow and FastAPI (tasks, handlers, defaults, vars, and both systemd templates).
+For this week, confirm the MLflow half works end-to-end:
 
 ```bash
 ansible-playbook -i ansible/inventory ansible/site.yml --check
-```
-
-Then run it for real:
-
-```bash
 ansible-playbook -i ansible/inventory ansible/site.yml
-```
-
-Verify MLflow is running after the playbook:
-
-```bash
 curl -s http://localhost:5001/health
 ```
 
-## Part 8: Commit and Verify
+If your ADR changed anything from the scaffolded defaults (backend store type, ports,
+directories), update `ansible/roles/mlflow/defaults/main.yml` and re-run to confirm the
+change took effect.
 
-Commit all Week 11 work:
+> **Enterprise Pattern:** Notice the role already installs FastAPI's dependencies
+> alongside MLflow's, even though you won't build the FastAPI service until Week 12.
+> Real infra teams commonly provision dependencies for a service ahead of the service
+> itself, so a later rollout is a config change rather than a fresh install.
+
+---
+
+### Storage Check
+
+MLflow, scikit-learn, and their dependencies add real disk usage, and every training
+run writes new artifacts. Check your headroom before and after your first run:
 
 ```bash
-git add week-11/ ansible/ docs/
-git commit -m "Week 11: MLflow server, model training, Ansible role"
-git push origin main
+df -h
+docker system df
+du -sh /opt/mlflow 2>/dev/null || du -sh ./mlflow
 ```
 
-Run the Week 11 validation script:
+---
+
+### Validation Checks
+
+**QA runs all validation checks.** Before marking Week 11 stories done in your backlog,
+run the validation script and cross-check against `docs/qa-report-11.md`.
+
+#### Validation Check: MLflow Server and Training Pipeline
 
 ```bash
 ./scripts/check-week-11.sh
 ```
 
-## Deliverables Checklist
+This confirms: `week-11/fetch-incidents.py` and `week-11/train-model.py` exist, the
+MLflow health check passes, the Ansible role's tasks file references `mlflow`, and
+`ansible/site.yml` includes the `mlflow` role. Manually confirm what the script can't:
+the registered model name matches your ADR's stated target, and the metrics logged are
+the ones you committed to tracking.
 
-By end of Week 11, you must have:
+---
+
+### Deliverables
 
 - [ ] MLflow tracking server running on port 5001
-- [ ] Data fetch script (`fetch-incidents.py`) that reads from statustracker database with appuser
-- [ ] Training script (`train-model.py`) that builds incident status classifier
-- [ ] Model trained and logged to MLflow with accuracy/precision/recall/f1 metrics
-- [ ] Model registered in MLflow Model Registry as `incident-status-classifier`
-- [ ] MLflow UI showing the run with metrics and artifacts
-- [ ] Ansible role (`ansible/roles/mlflow/`) created with full tasks
-- [ ] Ansible playbook includes mlflow role and runs without error
+- [ ] `week-11/fetch-incidents.py` reads from `statustracker` with `appuser`
+- [ ] `week-11/train-model.py` trains and logs a model matching your Week 10 ADR target
+- [ ] Model registered in the MLflow Model Registry with metrics visible in the UI
+- [ ] `ansible/roles/mlflow/` verified to bring MLflow up from a clean run
 - [ ] `scripts/check-week-11.sh` passes
-- [ ] `docs/week-11-acceptance-criteria.md` completed
-- [ ] `docs/environment-log.md` updated with MLflow and database details
 - [ ] All files committed to git
 
-## Verification Command
+### Sprint Backlog: Preparing for Week 12
 
-```bash
-curl -s http://localhost:5001/health 2>/dev/null && echo "MLflow up" || echo "FAIL"
-```
+Scrum Master, open these tickets to continue Sprint 6:
 
-Expected output: `MLflow up`
+- **MLFLOW-6:** Build `week-12/inference-server.py` (FastAPI) loading the registered model
+- **MLFLOW-7:** Add FastAPI systemd service to `ansible/roles/mlflow/`
+- **MLFLOW-8:** Wire a Flask endpoint (Compose stack, `localhost:8080`) to call FastAPI
+- **MLFLOW-9:** Write `week-12/test-pipeline.sh` for end-to-end verification
+- **MLFLOW-10:** Capture MLflow UI screenshots for Demo Day reference material
 
-## Next Steps
-
-Week 12 continues with:
-
-1. Building a FastAPI inference endpoint that loads the registered model
-2. Adding a Flask integration that calls the inference endpoint
-3. Testing end-to-end and capturing MLflow UI screenshots
-
-Refer to `week-12/README.md` for detailed instructions.
+---

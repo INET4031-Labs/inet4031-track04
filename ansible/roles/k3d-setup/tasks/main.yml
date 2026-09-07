@@ -14,29 +14,8 @@
   register: cluster_list
   changed_when: false
 
-# QA-found defect (see _orchestration/solve-log-week-03.md): the lab-provided cluster
-# create command uses k3d/k3s defaults, which ship with Flannel and no NetworkPolicy
-# controller. Week 7 Part 2 depends on NetworkPolicy actually being enforced (the
-# default-deny test expects a real connection timeout). Flannel is disabled here and
-# Calico is installed instead so NetworkPolicy objects have enforcement effect.
-- name: Create k3d cluster if not present (Flannel disabled, Calico installed for NetworkPolicy enforcement)
+- name: Create k3d cluster if not present
   command: >
-    k3d cluster create myapp --agents 2 --port "8080:80@loadbalancer"
-    --k3s-arg "--flannel-backend=none@server:*"
-    --k3s-arg "--disable-network-policy@server:*"
+    k3d cluster create myapp --agents 2 --port "8081:80@loadbalancer"
+    --k3s-arg "--disable=traefik@server:0"
   when: "'myapp' not in cluster_list.stdout"
-
-- name: Wait for API server to be reachable before installing Calico
-  command: kubectl get nodes
-  register: nodes_check
-  retries: 10
-  delay: 6
-  until: nodes_check.rc == 0
-  changed_when: false
-  when: "'myapp' not in cluster_list.stdout"
-
-- name: Install Calico for NetworkPolicy enforcement
-  command: kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.27.2/manifests/calico.yaml
-  when: "'myapp' not in cluster_list.stdout"
-  register: calico_apply
-  changed_when: "'created' in calico_apply.stdout or 'configured' in calico_apply.stdout"

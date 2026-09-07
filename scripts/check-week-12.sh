@@ -16,10 +16,10 @@ PASSED=0
 check_file() {
     if [ -f "$1" ]; then
         echo "[PASS] File exists: $1"
-        ((PASSED++))
+        PASSED=$((PASSED + 1))
     else
         echo "[FAIL] File missing: $1"
-        ((FAILED++))
+        FAILED=$((FAILED + 1))
     fi
 }
 
@@ -40,10 +40,10 @@ echo ""
 echo "3. Checking MLflow service..."
 if curl -s http://localhost:5001/health | grep -q '"status"'; then
     echo "[PASS] MLflow health check passed"
-    ((PASSED++))
+    PASSED=$((PASSED + 1))
 else
     echo "[FAIL] MLflow health check failed or service not running"
-    ((FAILED++))
+    FAILED=$((FAILED + 1))
 fi
 echo ""
 
@@ -51,10 +51,10 @@ echo ""
 echo "4. Checking FastAPI service..."
 if curl -s http://localhost:8000/health | grep -q '"status"'; then
     echo "[PASS] FastAPI health check passed"
-    ((PASSED++))
+    PASSED=$((PASSED + 1))
 else
     echo "[FAIL] FastAPI health check failed or service not running"
-    ((FAILED++))
+    FAILED=$((FAILED + 1))
 fi
 echo ""
 
@@ -72,10 +72,10 @@ echo ""
 echo "7. Checking Ansible includes FastAPI..."
 if grep -q "fastapi" ansible/roles/mlflow/tasks/main.yml; then
     echo "[PASS] FastAPI installation found in Ansible tasks"
-    ((PASSED++))
+    PASSED=$((PASSED + 1))
 else
     echo "[FAIL] FastAPI installation not found in Ansible tasks"
-    ((FAILED++))
+    FAILED=$((FAILED + 1))
 fi
 echo ""
 
@@ -85,14 +85,14 @@ if [ -d ".git" ]; then
     COMMITS=$(git log --oneline | wc -l)
     if [ "$COMMITS" -gt 1 ]; then
         echo "[PASS] Git commits found ($COMMITS commits)"
-        ((PASSED++))
+        PASSED=$((PASSED + 1))
     else
         echo "[FAIL] No git commits found (expected at least Week 10 and 11)"
-        ((FAILED++))
+        FAILED=$((FAILED + 1))
     fi
 else
     echo "[FAIL] Git repository not initialized"
-    ((FAILED++))
+    FAILED=$((FAILED + 1))
 fi
 echo ""
 

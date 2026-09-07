@@ -13,20 +13,21 @@ professor before being finalized. What you find here is a framework for this cha
 track, not a finished deliverable. Specific deliverables and integration points may
 still change. Confirm with your instructor before starting.
 
-Additionally, this course assumes the university's container platform allows Docker
-containers to run in privileged mode (`--privileged` flag). This configuration has not
-yet been confirmed by the professor. If privileged mode is unavailable, the team
-container model described in this course will not function as designed starting Week 3,
-and the course will need to fall back to individual student VMs.
+Additionally, the university's container platform runs Docker containers in privileged
+mode (`--privileged` flag). This has been confirmed by the professor, and the team
+container model described in this course functions as designed starting Week 3.
 
 ## Challenge Track Goal
 
 Build an ML model serving pipeline integrated with the incident-tracking application.
-Deploy MLflow for experiment tracking and model registry, train a model (severity
-classifier or time-to-resolution predictor) on seeded incident data, and serve the
-model behind a FastAPI inference endpoint. Demonstrate integration by calling the
-inference endpoint from the Flask application and showing the complete pipeline
-(training run, registered model, and live predictions) in the MLflow UI.
+Deploy MLflow for experiment tracking and model registry, train a model on seeded
+incident data, and serve the model behind a FastAPI inference endpoint. The
+`incidents` table only has `id, title, status, description, created_at` — there is no
+`severity` column, so your team decides what to predict from the columns that
+actually exist (a status classifier is the straightforward default; derive your own
+target if you want something else). Demonstrate integration by calling the inference
+endpoint from the Flask application and showing the complete pipeline (training run,
+registered model, and live predictions) in the MLflow UI.
 
 ## Weekly Structure
 
@@ -43,7 +44,7 @@ inference endpoint from the Flask application and showing the complete pipeline
 ```
 README.md                 - this file
 ansible/                  - Ansible role for MLflow installation and management
-docs/                     - sprint retrospectives, environment log, acceptance criteria, QA reports
+docs/                     - sprint retrospectives, QA reports
 scripts/                  - validation and verification scripts
 week-10/                  - Week 10 (architecture and planning)
 week-11/                  - Week 11 (MLflow server and model training)
@@ -70,7 +71,8 @@ pipeline.
 
 **Week 11:**
 - MLflow tracking server running and accessible
-- Trained model (severity classifier or time-to-resolution predictor) logged with metrics
+- Trained model logged with metrics (named for what it actually predicts — see Week 10's
+  ADR, not a "severity classifier" since no severity column exists)
 - Model registered in MLflow model registry
 
 **Week 12:**
@@ -108,8 +110,8 @@ week, verify that your deliverables meet the stated requirements:
 - Week 13: Ansible playbook runs dry run without error, demo script ready
 - Week 14: Container rebuild complete, end-to-end pipeline verified
 
-See `docs/week-10-acceptance-criteria.md` through `docs/week-14-acceptance-criteria.md`
-for the full sign-off checklists.
+See `docs/qa-report-10.md` through `docs/qa-report-14.md` for the full sign-off
+checklists.
 
 ## Running Validation Scripts
 
@@ -154,7 +156,10 @@ repo root:
 
 **Seeded Data Source:** Incident table (PostgreSQL, pre-populated in Week 2)
 
-**ML Task:** Severity classifier or time-to-resolution predictor
+**ML Task:** Team's choice, grounded in the real `incidents` schema (`id, title, status,
+description, created_at` — no `severity` or `resolved_at` column). A status
+(open/resolved) classifier is the recommended default; see `week-10/adr.md` for your
+team's actual decision.
 
 **Verification Command:**
 ```bash

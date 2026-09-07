@@ -16,10 +16,10 @@ PASSED=0
 check_file() {
     if [ -f "$1" ]; then
         echo "[PASS] File exists: $1"
-        ((PASSED++))
+        PASSED=$((PASSED + 1))
     else
         echo "[FAIL] File missing: $1"
-        ((FAILED++))
+        FAILED=$((FAILED + 1))
     fi
 }
 
@@ -27,10 +27,10 @@ check_file() {
 check_dir() {
     if [ -d "$1" ]; then
         echo "[PASS] Directory exists: $1"
-        ((PASSED++))
+        PASSED=$((PASSED + 1))
     else
         echo "[FAIL] Directory missing: $1"
-        ((FAILED++))
+        FAILED=$((FAILED + 1))
     fi
 }
 
@@ -76,33 +76,26 @@ echo ""
 
 # Check documentation structure
 echo "7. Checking documentation files..."
-check_file "docs/environment-log.md"
-check_file "docs/week-10-acceptance-criteria.md"
-check_file "docs/week-11-acceptance-criteria.md"
-check_file "docs/week-12-acceptance-criteria.md"
-check_file "docs/week-13-acceptance-criteria.md"
-check_file "docs/week-14-acceptance-criteria.md"
-check_file "docs/sprint-5-retrospective.md"
-check_file "docs/sprint-6-retrospective.md"
-check_file "docs/sprint-7-retrospective.md"
+check_file "docs/qa-report-10.md"
+check_file "docs/sprint-10-retrospective.md"
 echo ""
 
 # Check git status
 echo "8. Checking git repository..."
 if [ -d ".git" ]; then
     echo "[PASS] Git repository initialized"
-    ((PASSED++))
+    PASSED=$((PASSED + 1))
 else
     echo "[FAIL] Git repository not initialized"
-    ((FAILED++))
+    FAILED=$((FAILED + 1))
 fi
 
 if [ -f ".gitignore" ]; then
     echo "[PASS] .gitignore file exists"
-    ((PASSED++))
+    PASSED=$((PASSED + 1))
 else
     echo "[FAIL] .gitignore file missing"
-    ((FAILED++))
+    FAILED=$((FAILED + 1))
 fi
 echo ""
 

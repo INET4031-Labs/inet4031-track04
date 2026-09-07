@@ -16,10 +16,10 @@ PASSED=0
 check_file() {
     if [ -f "$1" ]; then
         echo "[PASS] File exists: $1"
-        ((PASSED++))
+        PASSED=$((PASSED + 1))
     else
         echo "[FAIL] File missing: $1"
-        ((FAILED++))
+        FAILED=$((FAILED + 1))
     fi
 }
 
@@ -38,8 +38,8 @@ echo ""
 
 # Check documentation complete
 echo "3. Checking documentation completion..."
-check_file "docs/sprint-6-retrospective.md"
-check_file "docs/week-13-acceptance-criteria.md"
+check_file "docs/qa-report-13.md"
+check_file "docs/sprint-13-retrospective.md"
 echo ""
 
 # Check Ansible playbook can run in check mode
@@ -47,10 +47,10 @@ echo "4. Checking Ansible playbook (dry-run mode)..."
 if command -v ansible-playbook &> /dev/null; then
     if ansible-playbook -i ansible/inventory ansible/site.yml --check > /tmp/ansible-check.log 2>&1; then
         echo "[PASS] Ansible playbook runs in check mode without errors"
-        ((PASSED++))
+        PASSED=$((PASSED + 1))
     else
         echo "[FAIL] Ansible playbook has errors in check mode"
-        ((FAILED++))
+        FAILED=$((FAILED + 1))
         echo "  Log:"
         tail -5 /tmp/ansible-check.log | sed 's/^/    /'
     fi
@@ -68,7 +68,7 @@ if curl -s http://localhost:5001/health | grep -q '"status"'; then
     ((SERVICES_OK++))
 else
     echo "[FAIL] MLflow service not running"
-    ((FAILED++))
+    FAILED=$((FAILED + 1))
 fi
 
 if curl -s http://localhost:8000/health | grep -q '"status"'; then
@@ -76,11 +76,11 @@ if curl -s http://localhost:8000/health | grep -q '"status"'; then
     ((SERVICES_OK++))
 else
     echo "[FAIL] FastAPI service not running"
-    ((FAILED++))
+    FAILED=$((FAILED + 1))
 fi
 
 if [ "$SERVICES_OK" -eq 2 ]; then
-    ((PASSED++))
+    PASSED=$((PASSED + 1))
 fi
 echo ""
 
@@ -89,15 +89,15 @@ echo "6. Checking git repository status..."
 if [ -d ".git" ]; then
     if git status | grep -q "working tree clean"; then
         echo "[PASS] Git working tree is clean"
-        ((PASSED++))
+        PASSED=$((PASSED + 1))
     else
         echo "[FAIL] Git has uncommitted changes"
-        ((FAILED++))
+        FAILED=$((FAILED + 1))
         echo "  Run: git status"
     fi
 else
     echo "[FAIL] Git repository not initialized"
-    ((FAILED++))
+    FAILED=$((FAILED + 1))
 fi
 echo ""
 

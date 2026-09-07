@@ -7,96 +7,130 @@ Weeks 10-14 assume your completed Weeks 1-9 repositories are available as peer d
 
 Your track repo does NOT copy these — it integrates with them. Ensure your Week 1-9 work is complete and accessible before Week 11.
 
+Note also that Weeks 1-9 leave you with **two** independently-running Flask stacks by Week 9: the Docker Compose stack at `localhost:8080` and the k3d-fronted stack at `localhost:8081`. This track's Flask integration (Weeks 11-12) targets the **Compose stack on port 8080** — that is the stack your `httpx` calls and demo script should point at.
+
 ---
 
-# Week 10: Challenge Kickoff - Machine Learning and AI
+## Week 10: Challenge Kickoff - Machine Learning and AI
 
 **Sprint 5 Continuation | Synchronous**
 
-## Overview
+### Overview
 
-Week 10 is your challenge track kickoff. In this week, your team will define the
-architecture for the ML model serving pipeline, decide on the specific ML task (severity
-classifier or time-to-resolution predictor), allocate work, and populate the backlog for
-Weeks 11 and 12.
+Week 10 is your challenge track kickoff. In this session, your team will ground your ML
+task in the real incident schema, design the four-component pipeline (MLflow, model
+training, FastAPI inference, Flask integration), record that design as an Architecture
+Decision Record, and populate the backlog for Weeks 11 and 12. Unlike Weeks 1-9, this
+track does not hand you a single prescribed path — your team chooses what to predict and
+how, within the constraints of the data you actually have. By the end of this week, you
+will have a documented, schema-grounded architecture decision, an estimated two-sprint
+backlog, and a scaffolded Ansible role ready for implementation.
 
-By the end of this week, you will have:
+### Learning Objectives
 
-1. A documented architecture decision covering MLflow, model training, FastAPI inference,
-   and Flask integration
-2. A backlog with estimated stories for Weeks 11 and 12
-3. Role and task assignments for each team member
-4. An agreed-upon ML model choice and feature set
+- Inspect a production-style schema and identify what ML tasks it can and cannot support
+- Design a four-component ML serving architecture and document it as an ADR
+- Translate an architecture decision into a two-sprint backlog with estimated stories
+- Confirm and extend an Ansible role scaffold that already contains a reference MLflow/FastAPI implementation
+- Apply sprint-ceremony practices (kickoff, backlog grooming, retrospective) to a self-directed challenge track
 
-## Prerequisites
+### Prerequisites
 
-- Complete Week 9 (or your team's prior sprint backlog and retrospective)
-- Your team's shared container is running with PostgreSQL and Flask application from
-  Weeks 1-9
-- All team members can access the container and clone this repository
+- Completed Weeks 1-9, with the shared team container, PostgreSQL (`statustracker`
+  database, `incidents` table, ~50,000 seeded rows), and Flask application running
+- Access to both the Docker Compose Flask stack (`localhost:8080`) and the k3d-fronted
+  stack (`localhost:8081`) — see the prerequisite note above
+- Python 3.8+ and `pip` available in the container
+- Your team's Week 9 sprint backlog and retrospective closed out
 
-## Part 1: Understand the Track Requirements (30 min)
+### Sprint 5 Kickoff (Track 4 Continuation)
 
-Read through the main README.md of this repository and review the high-level challenge
-description. Specifically understand:
+This is a synchronous session — get your whole team in the same room (or call) before
+starting. Track 4 hands you a framework, not a finished spec: the architecture decisions
+you make this week shape everything you build through Week 14. Don't rush Part 1; a
+model choice that doesn't fit the real schema will cost you far more time in Week 11
+than it costs to double-check now.
 
-- What MLflow is and how it will track experiment runs and register models
-- What FastAPI is and how it will serve inference requests
-- How the Flask application will integrate by calling the inference endpoint
-- The capstone requirement: Ansible must rebuild everything in Week 14
+---
 
-As a team, discuss and document:
+### Part 1: Ground Your Architecture in the Real Schema
 
-1. What ML task will your model solve? (Severity classifier or time-to-resolution
-   predictor?)
-   - Severity classifier: Predict incident severity (critical, high, medium, low) from
-     title and description
-   - Time-to-resolution predictor: Predict incident resolution time (in hours) from
-     title, description, and current status
-2. What features will you use from the incidents table?
-3. What metrics will you track in MLflow (accuracy, RMSE, precision, recall, etc.)?
+Before choosing an ML task, confirm what data you actually have to work with.
 
-Document your choices in a short architecture decision record (see Part 3).
+**Step 1.** Connect to your PostgreSQL database and inspect the `incidents` table directly — don't rely on memory or on what earlier course materials implied the schema might contain.
 
-## Part 2: Architecture and Design (1 hour)
+```bash
+psql -U appuser -d statustracker -c "\d incidents"
+psql -U appuser -d statustracker -c "SELECT status, COUNT(*) FROM incidents GROUP BY status;"
+```
 
-Create an architecture diagram or text description covering:
+**Step 2.** Confirm the columns you see. The Week 1-9 baseline schema is: `id, title,
+status, description, created_at`. There is **no** `severity`, `resolved_at`, or
+`assigned_to` column. If your team has heard this track described elsewhere as building
+a "severity classifier," that description does not match the data — there is nothing to
+classify severity from. Don't design around a column that isn't there.
 
-### Components
+**Decide as a team:** what will your model predict from the incidents table? Some
+concrete options, roughly in order of how directly the existing schema supports them:
 
-1. **MLflow Tracking Server**
-   - Deployment (container port, host port)
-   - Backend store (file-based or PostgreSQL)
-   - Artifact store (local or S3-like)
-   - Health check endpoint
-   - Security considerations (access control, credentials)
+- **Resolution-status classifier (recommended default):** predict `status`
+  (open/resolved) from `title` and `description`. This maps directly onto an existing
+  column and needs no extra data engineering.
+- **A derived target you engineer yourselves:** for example, bucket `created_at` deltas
+  within your dataset into a coarse "time since filed" signal, or add a lightweight
+  labeling pass over a sample of incidents. If you go this route, document exactly how
+  you derive the target column and be ready to defend it to QA — a derived label is
+  only as credible as the method that produced it.
+
+Whatever you pick, write down *why the schema supports it*. A plan that assumes a
+`severity` or `resolved_at` field will not survive Week 11.
+
+> **Enterprise Pattern:** Real ops teams rarely get the schema they wish they had.
+> Production ML work usually starts with "what can I actually predict from what's
+> already being collected," not "what would make the most interesting model." Treat
+> this step as practice for that constraint, not a formality.
+
+---
+
+### Part 2: Architecture and Design
+
+As a team, design (diagram or written description) the following components. Some
+values below are already fixed by the Ansible role scaffold in this repo
+(`ansible/roles/mlflow/`) — treat those as given. Where a component leaves you a real
+choice, decide it now and record it in Part 3.
+
+1. **MLflow Tracking Server** *(mostly fixed)*
+   - Port **5001**, host `0.0.0.0` — pinned in `ansible/roles/mlflow/defaults/main.yml`
+   - Data directory `/opt/mlflow`, artifact store `/opt/mlflow/artifacts` — pinned
+   - **Open choice:** backend store. The scaffolded default is file-based
+     (`file:/opt/mlflow`). You may switch to a PostgreSQL-backed store if your team
+     wants queryable run metadata; document whichever you pick.
 
 2. **Model Training Pipeline**
-   - Input: incidents table (PostgreSQL)
-   - Feature engineering: how you'll prepare data from incidents
-   - Model library: scikit-learn (or specify alternative)
+   - Input: `incidents` table via `appuser`/`changeme`@`localhost:5432`/`statustracker`
+     (same credential pattern established in Week 2)
+   - **Open choice:** feature engineering approach and model library/estimator
+     (scikit-learn is required; which estimator — RandomForest, LogisticRegression,
+     etc. — is yours to decide)
    - Output: trained model logged to MLflow with metrics
 
-3. **FastAPI Inference Endpoint**
-   - Request format (what fields the inference accepts)
-   - Response format (model prediction output)
-   - Health check endpoint
-   - Error handling for invalid input
+3. **FastAPI Inference Endpoint** *(port fixed, contract mostly open)*
+   - Port **8000**, host `0.0.0.0`, deployed to `/opt/inference` — pinned
+   - **Open choice:** exact request/response field names beyond the required
+     `/health` and `/predict` endpoints (see Part 3 template)
 
 4. **Flask Application Integration**
-   - Which page or endpoint will call the inference service?
-   - How will you display predictions in the UI (if at all)?
-   - Error handling if inference service is down
+   - Target: the Compose Flask stack at `localhost:8080`
+   - **Open choice:** which page/endpoint calls the inference service, and how (or
+     whether) predictions are shown in the UI
 
-5. **Ansible Role**
-   - Installing MLflow, scikit-learn, FastAPI
-   - Creating systemd service for MLflow tracking server
-   - Creating systemd service for FastAPI inference server
-   - Idempotency: how will re-running the role behave?
+5. **Ansible Role** *(scaffold already exists — extend, don't rebuild)*
+   - `ansible/roles/mlflow/` already contains a working reference implementation:
+     `tasks/main.yml`, `handlers/main.yml`, `defaults/main.yml`, `vars/main.yml`, and
+     both systemd unit templates. Review it before Week 11 — you'll be extending this,
+     not starting from a blank role.
 
-### Data Flow Diagram
-
-Sketch or describe the flow:
+**Data Flow Diagram**
 
 ```
 PostgreSQL (incidents table)
@@ -109,265 +143,112 @@ PostgreSQL (incidents table)
               |
               +-> FastAPI Endpoint (loads registered model, serves predictions)
                   |
-                  +-> Flask App (calls endpoint, displays results)
+                  +-> Flask App (localhost:8080) (calls endpoint, displays results)
 ```
 
-## Part 3: Architecture Decision Record
+---
 
-Create a file `week-10/architecture-decision.md` with the following structure:
+### Part 3: Architecture Decision Record
 
-```markdown
-# Architecture Decision Record: ML Pipeline for Track 4
+Fill in `week-10/adr.md`, which is already scaffolded in this repo with the standard ADR
+sections (Context, Decision, Options Considered, Rationale, Consequences, Ansible
+Integration Plan). Make sure your **Decision** section states, explicitly:
 
-## Decision Date
-[Today's date]
+- What your model predicts, and which real column(s) that target comes from
+- The feature set (which `incidents` columns you'll use)
+- Model library and estimator
+- Metrics to track in MLflow
+- MLflow backend-store choice (file-based, or PostgreSQL-backed)
+- FastAPI request/response contract
+- The Flask integration point (endpoint, UI behavior)
 
-## ML Task
-[Severity classifier / Time-to-resolution predictor]
+---
 
-## Feature Set
-[List the columns from incidents table you will use]
+### Part 4: Populate the Backlog
 
-## Model Library
-[scikit-learn (and which estimator type: RandomForest, LogisticRegression, etc.)]
+Create `week-11/backlog.md` and `week-12/backlog.md`, breaking your Part 2/3 design into
+stories with story points and an owner (or pair) per story. Use headings like "Set Up
+MLflow Tracking Server," "Prepare Training Data," "Build and Train Model," "Ansible Role
+for MLflow" for Week 11, and "Build FastAPI Inference Endpoint," "Integrate FastAPI into
+Ansible Role," "Flask Application Integration," "End-to-End Testing" for Week 12. Assign
+story points so each week totals roughly 20-30 points, and flag dependencies between
+stories (e.g., the FastAPI story depends on a registered model existing).
 
-## Metrics to Track
-[List MLflow-tracked metrics: accuracy, RMSE, precision, etc.]
+---
 
-## MLflow Deployment
-- Container port: [e.g., 5001]
-- Backend: [file-based or PostgreSQL backend]
-- Artifact store: [local directory]
-- Health check: http://localhost:5001/health
+### Part 5: Confirm the Ansible Scaffold
 
-## FastAPI Deployment
-- Container port: [e.g., 8000 or 8001]
-- Request format:
-  ```json
-  {
-    "field1": "value",
-    "field2": 123
-  }
-  ```
-- Response format:
-  ```json
-  {
-    "prediction": "value",
-    "confidence": 0.95
-  }
-  ```
-- Health check: GET /health
-
-## Flask Integration
-- Endpoint that calls inference: [e.g., /incidents/predict]
-- User flow: [describe what a user sees]
-
-## Risks and Mitigations
-[List any potential issues and how you will address them]
-
-## Timeline
-- Week 11: MLflow server + model training
-- Week 12: FastAPI endpoint + Flask integration
-- Week 13: Ansible playbook refinement
-- Week 14: Demo Day rebuild
-```
-
-## Part 4: Define the Backlog (1 hour)
-
-Working as a team, populate your backlog for Weeks 11 and 12. Use the following template
-and assign each story to a team member (or pair):
-
-### Week 11 Backlog (MLflow and Model Training)
-
-Create a file `week-11/backlog.md`:
-
-```markdown
-# Week 11 Backlog
-
-## Story 1: Set Up MLflow Tracking Server
-- [ ] Install MLflow in container via pip
-- [ ] Create MLflow systemd service (runs on port 5001)
-- [ ] Configure MLflow backend (file-based or PostgreSQL)
-- [ ] Verify http://localhost:5001/ is accessible
-- [ ] Verify health check endpoint responds
-- Points: [5-8]
-- Assigned to: [team member]
-
-## Story 2: Prepare Training Data from PostgreSQL
-- [ ] Write Python script to fetch incidents from PostgreSQL
-- [ ] Implement feature engineering (select and transform columns)
-- [ ] Handle missing values and data types
-- [ ] Create train/test split
-- [ ] Points: [5]
-- Assigned to: [team member]
-
-## Story 3: Build and Train ML Model
-- [ ] Implement scikit-learn model (train, fit, predict)
-- [ ] Set up MLflow experiment and run context
-- [ ] Log model to MLflow with artifacts
-- [ ] Log metrics (accuracy, precision, recall, or RMSE as appropriate)
-- [ ] Test that model can be loaded from MLflow
-- [ ] Points: [8]
-- Assigned to: [team member]
-
-## Story 4: Ansible Role for MLflow
-- [ ] Create ansible/roles/mlflow/ directory and structure
-- [ ] Write tasks to install MLflow and dependencies
-- [ ] Create systemd unit file template for MLflow service
-- [ ] Test that playbook runs idempotently
-- [ ] Points: [5]
-- Assigned to: [team member]
-
-## Story 5: MLflow Testing and Verification
-- [ ] Verify MLflow UI is accessible and shows registered model
-- [ ] Verify curl health check passes
-- [ ] Test that model can be loaded in Python
-- [ ] Document findings in environment log
-- [ ] Points: [3]
-- Assigned to: [team member]
-```
-
-### Week 12 Backlog (FastAPI and Flask Integration)
-
-Create a file `week-12/backlog.md`:
-
-```markdown
-# Week 12 Backlog
-
-## Story 1: Build FastAPI Inference Endpoint
-- [ ] Install FastAPI and uvicorn
-- [ ] Create FastAPI app with inference endpoint
-- [ ] Load registered model from MLflow
-- [ ] Implement request validation (Pydantic models)
-- [ ] Implement response with prediction and confidence
-- [ ] Add health check endpoint
-- [ ] Test endpoint locally with curl or httpx
-- [ ] Points: [8]
-- Assigned to: [team member]
-
-## Story 2: Integrate FastAPI into Ansible Role
-- [ ] Create FastAPI systemd unit file
-- [ ] Add FastAPI service to MLflow Ansible role
-- [ ] Test that playbook starts both MLflow and FastAPI
-- [ ] Points: [5]
-- Assigned to: [team member]
-
-## Story 3: Flask Application Integration
-- [ ] Add new endpoint to Flask app that calls FastAPI inference
-- [ ] Handle FastAPI responses and display results
-- [ ] Add error handling for inference failures
-- [ ] Update Flask templates if UI updates are needed
-- [ ] Points: [8]
-- Assigned to: [team member]
-
-## Story 4: End-to-End Testing
-- [ ] Verify Flask app can call FastAPI endpoint
-- [ ] Verify predictions appear in Flask UI
-- [ ] Check MLflow UI shows new runs (if retraining)
-- [ ] Test with multiple incident examples
-- [ ] Points: [5]
-- Assigned to: [team member]
-
-## Story 5: Documentation and Demo Prep
-- [ ] Document API contract for FastAPI endpoint
-- [ ] Create demo script showing the full pipeline
-- [ ] Capture screenshots of MLflow UI
-- [ ] Update acceptance criteria
-- [ ] Points: [3]
-- Assigned to: [team member]
-```
-
-## Part 5: Populate Acceptance Criteria and Environment Log
-
-Create stub files that will be filled in as weeks progress:
-
-- [ ] `docs/week-10-acceptance-criteria.md` (template below)
-- [ ] `docs/week-11-acceptance-criteria.md` (template below)
-- [ ] `docs/week-12-acceptance-criteria.md` (template below)
-- [ ] `docs/week-13-acceptance-criteria.md` (template below)
-- [ ] `docs/week-14-acceptance-criteria.md` (template below)
-- [ ] `docs/environment-log.md` (shared across all weeks)
-- [ ] `docs/sprint-5-retrospective.md` (filled in after Week 10)
-- [ ] `docs/sprint-6-retrospective.md` (filled in after Week 12)
-- [ ] `docs/sprint-7-retrospective.md` (filled in after Week 14)
-
-## Part 6: Create Ansible Directory Structure
-
-Set up the Ansible role scaffold:
+`ansible/roles/mlflow/` in this repo already has a full directory structure and a
+working reference implementation (install tasks for both MLflow and FastAPI, directory
+creation, systemd service deployment, handlers). Run through it now so Week 11 isn't the
+first time you've seen it:
 
 ```bash
-mkdir -p ansible/roles/mlflow
-mkdir -p ansible/roles/mlflow/{defaults,handlers,tasks,templates,vars}
-touch ansible/roles/mlflow/defaults/main.yml
-touch ansible/roles/mlflow/handlers/main.yml
-touch ansible/roles/mlflow/tasks/main.yml
-touch ansible/roles/mlflow/templates/mlflow.service.j2
-touch ansible/roles/mlflow/templates/fastapi.service.j2
-touch ansible/roles/mlflow/vars/main.yml
+find ansible/roles/mlflow -type f
+cat ansible/roles/mlflow/defaults/main.yml
 ```
 
-The role will be developed in Weeks 11-12 but the structure is created now.
+Confirm the defaults (`mlflow_port: 5001`, `fastapi_port: 8000`,
+`mlflow_data_dir: /opt/mlflow`, `fastapi_app_dir: /opt/inference`) match what you
+documented in your ADR. If your team's design needs different values, override them in
+`defaults/main.yml` now and note the change in your ADR.
 
-## Part 7: Commit and Record
+---
 
-Commit all Week 10 files to git:
+### Part 6: Commit and Record
 
 ```bash
 cd track-04-machine-learning-and-ai
-git add week-10/ ansible/ docs/
-git commit -m "Week 10: Architecture decision, backlog, and role structure"
+git add week-10/ week-11/backlog.md week-12/backlog.md ansible/ docs/
+git commit -m "Week 10: Architecture decision, backlog, and role scaffold review"
 git push origin main
 ```
 
-Record in your team's Google Doc:
+Record in your team's Google Doc: your architecture decision summary, ML task choice
+and justification, feature set, high-level backlog estimate, and any risks or
+assumptions.
 
-- Architecture decision summary
-- ML task choice and justification
-- Feature set selected
-- High-level backlog estimate for Weeks 11-12
-- Any risks or assumptions
+---
 
-## Part 8: Fill Sprint 5 Retrospective
+### Validation Checks
 
-At the end of your Week 10 synchronous session, complete `docs/sprint-5-retrospective.md`:
+**QA runs all validation checks.** Before your kickoff session ends, run the Week 10
+validation script and fix anything it flags — don't carry missing scaffolding into
+Week 11.
 
-- What did you contribute to the architecture decision?
-- What is the most important aspect of the pipeline you designed?
-- What would you change about your architecture if you started over?
-- Notes for Sprint 6 (any unknowns or dependencies)?
-
-## Deliverables Checklist
-
-By end of Week 10, you must have:
-
-- [ ] Architecture decision record completed and committed
-- [ ] ML task chosen (severity classifier or time-to-resolution)
-- [ ] Feature set defined from incidents table
-- [ ] Week 11 backlog with estimated stories
-- [ ] Week 12 backlog with estimated stories
-- [ ] Ansible role directory structure created
-- [ ] All acceptance criteria documents created (as stubs)
-- [ ] Environment log template created
-- [ ] Sprint 5 retrospective completed
-- [ ] All files committed to git
-
-## Verification
-
-Run the Week 10 validation script (to be provided):
+#### Validation Check: Architecture and Backlog Complete
 
 ```bash
 ./scripts/check-week-10.sh
 ```
 
-This will verify that all required files are present and properly structured.
+Confirm against `docs/qa-report-10.md`: the ADR is filled in (no
+remaining `**TODO**` markers), the ML task is stated and grounded in real schema
+columns, both backlog files exist with estimated/assigned stories, and the Ansible role
+directory structure is confirmed present.
 
-## Next Steps
+---
 
-Week 11 begins the core build. Your tech lead and ML engineer will focus on:
+### Deliverables
 
-1. Installing MLflow and starting the tracking server
-2. Writing the model training pipeline
-3. Logging the first trained model to MLflow
-4. Starting the Ansible role implementation
+- [ ] `week-10/adr.md` completed — no TODO placeholders remaining
+- [ ] ML task chosen and explicitly grounded in the real `incidents` schema (no
+      references to a `severity` column)
+- [ ] Feature set, model library, and metrics documented
+- [ ] `week-11/backlog.md` and `week-12/backlog.md` created with estimated, assigned stories
+- [ ] Ansible role scaffold reviewed and defaults confirmed or overridden
+- [ ] `docs/sprint-10-retrospective.md` completed
+- [ ] All files committed to git
 
-Refer to `week-11/README.md` for detailed instructions.
+### Sprint Backlog: Preparing for Week 11
+
+Scrum Master, open these tickets before the async Week 11 sprint begins:
+
+- **MLFLOW-1:** Stand up MLflow tracking server per the scaffolded Ansible role
+- **MLFLOW-2:** Write `fetch-incidents.py` against the team's finalized feature set
+- **MLFLOW-3:** Implement and log the training pipeline (`train-model.py`)
+- **MLFLOW-4:** Verify the trained model is registered and visible in the MLflow UI
+- **MLFLOW-5:** Extend `ansible/roles/mlflow/` for anything your ADR changed from the
+  scaffolded defaults
+
+---

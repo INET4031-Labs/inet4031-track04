@@ -1,746 +1,252 @@
-# Week 14: Demo Day - Container Wipe and Playbook Rebuild
+## Week 14: Demo Day - Container Wipe and Playbook Rebuild
 
 **Sprint 7 Continuation | Synchronous**
 
-## Overview
+### Overview
 
-Week 14 is Demo Day. Your team will demonstrate the complete ML pipeline in front of the
-instructor and class. Before the demo, you will wipe the container clean and rebuild the
-entire environment from scratch using the Ansible playbook you've been refining since
-Week 11. This final rebuild proves that your infrastructure is reproducible and
-production-ready.
+Week 14 is Demo Day. Your team will wipe your container's ML pipeline state clean,
+rebuild the entire environment from scratch using the Ansible playbook you've refined
+since Week 11, retrain your model, and present the complete pipeline to your instructor.
+This is the same capstone proof point that ran through Weeks 1-4 with OpenTofu,
+Prometheus, and CI — infrastructure as code only counts if it can actually rebuild what
+it claims to manage, on demand, from nothing.
 
 By the end of this week, you will have:
 
-1. Wiped the container environment completely
-2. Rebuilt the entire stack (including MLflow, FastAPI, Flask, and all dependencies) via
-   Ansible playbook in a single run
-3. Retrained or restored the ML model
+1. Wiped the MLflow/FastAPI portion of the container environment completely
+2. Rebuilt the entire stack (MLflow, FastAPI, and dependencies) via a single Ansible playbook run
+3. Retrained and re-registered the model
 4. Verified the complete pipeline end-to-end
 5. Presented a successful demo to the instructor
 
-## Prerequisites
+### Learning Objectives
 
-- Week 13 deliverables complete (playbook tested, demo script rehearsed)
+- Execute a destructive infrastructure operation (wipe) with a rehearsed, low-risk procedure
+- Prove reproducibility by rebuilding a multi-service pipeline from a single playbook run
+- Retrain and re-register a model as part of a rebuild, not just as a one-time setup step
+- Deliver a timed technical demo under real conditions, including recovering from unexpected failures
+
+### Prerequisites
+
+- Week 13 deliverables complete: playbook verified, demo script rehearsed, edge cases handled
 - All code committed to git with no uncommitted changes
 - Ansible playbook runs successfully in production mode (not just check mode)
-- Demo script is memorized or printed for reference
+- Demo script ready for reference (printed or on a second screen)
 
-## Part 1: Pre-Demo Verification (30 min)
+### Demo Day
 
-### Step 1: Confirm All Services Are Running
+This is it — the capstone session for Track 4. Everything from Week 10's architecture
+decision through Week 13's rehearsal converges here. Move through the wipe and rebuild
+deliberately; there's no undo once you start Part 2.
 
-Before wiping, verify everything works one last time:
+---
+
+### Part 1: Pre-Demo Verification
+
+**Step 1.** Confirm every service is healthy one last time before wiping anything:
 
 ```bash
-# MLflow
 curl -s http://localhost:5001/health | python3 -m json.tool
-# FastAPI
 curl -s http://localhost:8000/health | python3 -m json.tool
-# Flask
 curl -s http://localhost:8080/ | head -20
 ```
 
-All three should respond successfully.
-
-### Step 2: Verify Git Status
-
-Ensure no uncommitted changes:
+**Step 2.** Confirm git is clean:
 
 ```bash
-cd /path/to/track-04-machine-learning-and-ai
 git status
 ```
 
-Expected output:
+If not, commit and push now — don't carry uncommitted changes into a wipe.
 
-```
-On branch main
-nothing to commit, working tree clean
-```
+**Step 3.** Start `week-14/demo-day-log.md` and record pre-wipe status: services
+running, playbook passing, git clean, demo script ready, team prepared.
 
-If you see uncommitted changes, commit them now:
+---
 
-```bash
-git add .
-git commit -m "Final pre-demo commit"
-git push origin main
-```
+### Part 2: Container Wipe Procedure
 
-### Step 3: Document Current State
+**CRITICAL: after this step, the current MLflow/FastAPI state is gone. There is no undo.**
 
-In `week-14/demo-day-log.md`, record the current state:
-
-```markdown
-# Demo Day Log
-
-**Date:** [Today's date]
-**Time:** [Current time]
-
-## Pre-Wipe Status
-
-- All services running: YES
-- Ansible playbook passing: YES
-- Git status: clean
-- Demo script: ready
-- Team prepared: YES
-
-[Continue with wipe and rebuild details below]
-```
-
-## Part 2: Container Wipe Procedure (10-15 min)
-
-**CRITICAL: After this step, your current environment is gone. You cannot undo this.**
-
-### Step 1: Stop All Services
+Follow the procedure your team documented in `week-14/wipe-and-rebuild-procedure.md`
+last week. It should cover, at minimum:
 
 ```bash
-# Stop systemd services (if running)
 sudo systemctl stop mlflow
 sudo systemctl stop fastapi
 
-# Or, if using manual processes, kill them
-pkill -f "mlflow server"
-pkill -f "uvicorn"
-```
-
-### Step 2: Remove MLflow Data and Artifacts
-
-```bash
-# Remove MLflow tracking data
 sudo rm -rf /opt/mlflow/*
-
-# Remove inference server directory (if created)
 sudo rm -rf /opt/inference/*
-
-# Remove local MLflow cache
-rm -rf ~/mlflow/
-rm -rf ~/.cache/mlflow/
+rm -rf ~/mlflow/ ~/.cache/mlflow/
 ```
 
-### Step 3: Clean Git Artifacts (if any)
+Verify the wipe actually took — both health checks should now fail:
 
 ```bash
-# Remove any uncommitted artifacts
-git clean -fd
-
-# Verify nothing is removed except build artifacts
-git status  # Should show "clean working tree"
+curl http://localhost:5001/health   # expect: connection refused
+curl http://localhost:8000/health   # expect: connection refused
 ```
 
-### Step 4: Verify Wipe Was Successful
+If either responds, a process wasn't actually stopped — find and kill it before
+proceeding. Log the wipe phase (start/end time, steps completed) in
+`week-14/demo-day-log.md`.
+
+---
+
+### Part 3: Rebuild via Ansible Playbook
+
+Run the full playbook against the wiped container:
 
 ```bash
-# All three should fail (connection refused or not found)
-curl http://localhost:5001/health  # FAIL: cannot connect
-curl http://localhost:8000/health  # FAIL: cannot connect
-
-# If they don't fail, services weren't stopped
-ps aux | grep mlflow
-ps aux | grep uvicorn
-# Kill any remaining processes manually
-```
-
-Update demo log:
-
-```markdown
-## Wipe Phase
-
-**Time Started:** [timestamp]
-**Steps Completed:**
-- [ ] Services stopped
-- [ ] /opt/mlflow cleaned
-- [ ] /opt/inference cleaned
-- [ ] Local cache cleaned
-- [ ] Verification: services unreachable
-
-**Time Completed:** [timestamp]
-```
-
-## Part 3: Rebuild via Ansible Playbook (5-10 min)
-
-### Step 1: Run Ansible Playbook
-
-Run the full playbook to rebuild everything:
-
-```bash
-cd /path/to/track-04-machine-learning-and-ai
 ansible-playbook -i ansible/inventory ansible/site.yml
 ```
 
-Expected output (abridged):
+Confirm the `PLAY RECAP` shows `unreachable=0` and `failed=0`.
 
-```
-PLAY [all] **********************
+> **Troubleshooting:** If the `k3d-setup` play hangs and `docker logs k3d-myapp-server-0`
+> shows repeated `"too many open files"` / `"error creating fsnotify watcher"` errors,
+> the host has run out of inotify watch instances — a common RHEL default
+> (`fs.inotify.max_user_instances=128`) is too low for a fresh k3s cluster. Fix:
+> `sudo sysctl -w fs.inotify.max_user_instances=1024`, then delete and re-create the
+> cluster (`k3d cluster delete myapp` before re-running the playbook).
 
-TASK [setup] **********************
-ok: [localhost]
-
-TASK [mlflow : Install MLflow and dependencies] ****
-changed: [localhost]
-
-TASK [mlflow : Create MLflow data directory] ****
-changed: [localhost]
-
-... [more tasks] ...
-
-PLAY RECAP **********************
-localhost : ok=XX changed=YY unreachable=0 failed=0
-```
-
-**Key metrics:**
-- `unreachable=0` and `failed=0` mean success
-- `changed=YY` is expected on first run (services not yet running)
-
-### Step 2: Verify Services Started
-
-After playbook completes, check that services are running:
+Then verify services came back up on their own, without any manual intervention:
 
 ```bash
-# Check systemd services
 sudo systemctl status mlflow
 sudo systemctl status fastapi
-
-# Or check processes
-ps aux | grep mlflow
-ps aux | grep uvicorn
-```
-
-Expected output:
-
-```
-mlflow.service - MLflow Tracking Server
-   Loaded: loaded (/etc/systemd/system/mlflow.service; enabled; vendor preset: enabled)
-   Active: active (running) since [date] [time] ago
-```
-
-### Step 3: Health Checks
-
-Verify all services are healthy:
-
-```bash
-# MLflow
 curl -s http://localhost:5001/health | python3 -m json.tool
-# Expected: {"status":"ok"}
-
-# FastAPI
 curl -s http://localhost:8000/health | python3 -m json.tool
-# Expected: {"status":"ok","model_loaded":true}
-
-# Flask
-curl -s http://localhost:8080/ | head -20
-# Should show HTML content
 ```
 
-If any health check fails, see **Troubleshooting** section below.
+Note: FastAPI's health check will report `model_loaded: false` (or fail to start
+cleanly) until you retrain in Part 4 — the wipe removed the registered model along with
+everything else in `/opt/mlflow`. Log rebuild timing and the `PLAY RECAP` numbers in
+`week-14/demo-day-log.md`.
 
-Update demo log:
+---
 
-```markdown
-## Rebuild Phase
+### Part 4: Retrain the Model
 
-**Time Started:** [timestamp]
-
-**Ansible Playbook Output:**
-- Changed: [XX]
-- Ok: [YY]
-- Failed: [0]
-- Unreachable: [0]
-
-**Services Verified:**
-- [ ] MLflow healthy
-- [ ] FastAPI healthy
-- [ ] Flask responding
-
-**Time Completed:** [timestamp]
-```
-
-## Part 4: Retrain Model (5 min)
-
-The container rebuild cleared MLflow's data. You need to retrain (or restore) the model.
-
-### Option A: Quick Retrain
-
-Run the training script to recreate the model:
+The wipe cleared MLflow's backend store, so the model registry is empty. Retrain:
 
 ```bash
 cd week-11
 python3 train-model.py
 ```
 
-Expected output:
+Confirm it logged a new run and registered a model matching what your team predicted
+throughout the track:
 
-```
-Loaded 42 incidents with severity labels
-Train set: 33, Test set: 9
-Run abc123def456 logged:
-  Accuracy: 0.8889
-  Precision: 0.8852
-  Recall: 0.8889
-  F1: 0.8869
-Model registered as 'incident-status-classifier'
+```bash
+mlflow models list
 ```
 
-If this fails:
+If training fails, check MLflow is up, PostgreSQL has data
+(`psql -U appuser -d statustracker -c "SELECT COUNT(*) FROM incidents;"`), and your
+Python environment has the required packages. Restart FastAPI after the model is
+registered, if it didn't pick it up automatically:
 
-1. **Verify MLflow is running:** `curl http://localhost:5001/health`
-2. **Verify PostgreSQL has data:** `psql -U appuser -d statustracker -c "SELECT COUNT(*) FROM incidents;"`
-3. **Check Python imports:** `python3 -c "import mlflow, sklearn; print('OK')"`
-
-### Option B: Pre-Build and Snapshot
-
-Alternatively, if training is time-consuming, you could:
-
-1. Export the model from the current environment
-2. Include it as an artifact in the repo
-3. Load it during the playbook run
-
-This is more advanced but faster for demos. For now, Option A (retrain) is recommended.
-
-Update demo log:
-
-```markdown
-## Model Restoration Phase
-
-**Time Started:** [timestamp]
-**Method:** Quick retrain
-**Training Script:** week-11/train-model.py
-
-**Training Output:**
-- Incidents loaded: [X]
-- Training samples: [Y]
-- Test samples: [Z]
-- Accuracy: [0.XX]
-- Model registered: YES
-
-**Time Completed:** [timestamp]
+```bash
+sudo systemctl restart fastapi
 ```
 
-## Part 5: End-to-End Pipeline Verification (10 min)
+Log training time, metrics, and registration status in `week-14/demo-day-log.md`.
 
-### Step 1: Run Full Test Suite
+---
+
+### Part 5: End-to-End Pipeline Verification
+
+Run your full test script and confirm all checks pass:
 
 ```bash
 bash week-12/test-pipeline.sh
 ```
 
-Expected output:
+Do a manual pass too: open the MLflow UI and confirm the new experiment/run and
+registered model are visible, send a `/predict` request directly, and exercise the
+Flask integration endpoint. Log the results in `week-14/demo-day-log.md` — status
+should read READY FOR DEMO before you move on.
 
-```
-Testing ML Pipeline...
-1. Checking MLflow...
-  MLflow: OK
-2. Checking FastAPI...
-  FastAPI: OK
-3. Testing prediction...
-  Response: {"prediction":"critical","confidence":0.92,"model":"incident-status-classifier","run_id":"see MLflow UI"}
-4. Testing Flask integration...
-  Response: {"incident_id":1,"suggested_severity":"high","confidence":0.85}
-Done.
-```
+---
 
-All four checks must pass.
+### Part 6: Demo Execution
 
-### Step 2: Manual Verification
+Set up your terminals/browser tabs (MLflow UI, Flask UI, a command line), have
+`week-13/demo-script.md` ready for the narrator, and confirm roles: narrator,
+demonstrator, backup. Follow the script you rehearsed in Week 13. Walk the instructor
+through: the real incident data, the MLflow experiment and metrics, the FastAPI
+prediction call, the Flask integration, and the Ansible playbook as your reproducibility
+story — the rebuild you just performed *is* the proof for that last point.
 
-Do a quick manual walkthrough:
+If something breaks mid-demo, fall back to your Week 13 contingency plan: show
+screenshots for a UI that won't load, show the systemd service status to prove
+something is running even if a request times out, and keep narrating rather than going
+silent while debugging.
 
-```bash
-# 1. Check MLflow UI
-echo "Open http://localhost:5001/ in your browser"
-echo "Expected: Experiment and run visible, model registered"
+---
 
-# 2. Test FastAPI directly
-curl -X POST http://localhost:8000/predict \
-  -H "Content-Type: application/json" \
-  -d '{"title":"Test","description":"Test incident"}' | python3 -m json.tool
+### Storage Check
 
-# 3. Test Flask endpoint
-curl http://localhost:8080/incident/1/suggest-severity | python3 -m json.tool
-```
-
-### Step 3: Load Test (Optional)
-
-If time permits, test concurrent requests:
+Before you start the wipe, confirm there's enough headroom for a full rebuild plus
+retraining without a disk-space surprise mid-demo:
 
 ```bash
-# Send 5 concurrent requests
-for i in {1..5}; do
-  curl -X POST http://localhost:8000/predict \
-    -H "Content-Type: application/json" \
-    -d '{"title":"Test '$i'","description":"Test incident"}' &
-done
-wait
-echo "All requests completed"
+df -h
+docker system df
 ```
 
-All should succeed without errors.
+---
 
-Update demo log:
+### Validation Checks
 
-```markdown
-## End-to-End Verification Phase
+**QA runs all validation checks.** Run this before you consider the environment
+demo-ready, and again immediately after retraining in Part 4.
 
-**Test Results:**
-- MLflow: PASS
-- FastAPI: PASS
-- Flask integration: PASS
-- Load test (5 concurrent): PASS
-
-**Issues Found and Resolved:**
-- [Issue 1]: [How resolved]
-
-**Status:** READY FOR DEMO
-```
-
-## Part 6: Demo Day Execution (10-15 min)
-
-### Demo Setup
-
-1. **Open three terminals/windows:**
-   - Terminal 1: MLflow UI browser tab (`http://localhost:5001/`)
-   - Terminal 2: Flask UI browser tab (`http://localhost:8080/`)
-   - Terminal 3: Command line for testing
-
-2. **Have demo script ready:**
-   - Print `week-13/demo-script.md` or open it on a second screen
-   - Verify all commands match your environment
-
-3. **Assigned roles:**
-   - Narrator: Explains what's happening
-   - Demonstrator: Operates the terminals/UI
-   - Backup: Ready if something breaks
-
-### Demo Execution
-
-Follow `week-13/demo-script.md` exactly. Key points:
-
-1. **Introduce the challenge:** "We built an ML pipeline for incident severity prediction"
-2. **Show the data:** PostgreSQL incidents (Week 1-2)
-3. **Show the model:** MLflow experiment with metrics
-4. **Show the service:** FastAPI inference endpoint (curl test)
-5. **Show the integration:** Flask UI calling FastAPI
-6. **Show reproducibility:** Ansible playbook automated everything
-
-Total time: 10-15 minutes.
-
-### Handling Interruptions
-
-- **If MLflow UI won't load:** Show MLflow logs and explain the service is running
-- **If FastAPI times out:** Show the systemd service status to prove it's running
-- **If a curl command fails:** Retry; transient errors can happen
-- **If Flask integration fails:** Explain the intended flow and show the code
-
-### Q&A
-
-Be prepared to answer:
-
-1. "Why MLflow?" -- Tracks experiments, versioning, reproducibility
-2. "Why FastAPI?" -- Fast, modern, easy to integrate with Flask
-3. "What happens if the model predicts incorrectly?" -- Retrain with more data
-4. "Can this scale to production?" -- Yes, with load balancing and monitoring
-5. "How long to rebuild from scratch?" -- 10-15 minutes via Ansible
-
-## Part 7: Post-Demo Documentation
-
-### Update Demo Day Log
-
-Complete the log:
-
-```markdown
-# Demo Day Log
-
-**Date:** [Date]
-**Instructor:** [Instructor name]
-**Attendees:** [Team members and instructor]
-
-## Demo Execution
-
-**Time Started:** [timestamp]
-**Time Ended:** [timestamp]
-**Duration:** [X] minutes
-
-**Components Demonstrated:**
-- [ ] PostgreSQL incident data
-- [ ] MLflow experiment and metrics
-- [ ] FastAPI inference endpoint
-- [ ] Flask integration
-- [ ] Ansible playbook rebuild
-- [ ] Complete end-to-end pipeline
-
-**Feedback from Instructor:**
-[Notes on feedback, questions asked, suggestions]
-
-**Grade:** [To be provided by instructor]
-
-## Reflection
-
-### What went well:
-- [Point 1]
-- [Point 2]
-
-### What could be improved:
-- [Point 1]
-- [Point 2]
-
-### Final notes:
-[Any final thoughts on the track]
-```
-
-### Complete Sprint 7 Retrospective
-
-Fill in `docs/sprint-7-retrospective.md`:
-
-```markdown
-# Sprint 7 Retrospective
-
-**Sprint Dates:** [Week 13 start] to [Week 14 end]
-
-## Sprint Close: What Was Completed
-
-**Completed Items:**
-
-- Ansible playbook verified in check and production modes
-- Demo script created and rehearsed
-- Edge case testing and fixes applied
-- Container wiped and rebuilt successfully
-- Model retrained successfully
-- Complete pipeline verified end-to-end
-- Demo Day executed successfully
-
-**Incomplete Items:**
-
-- [None expected; this is the final sprint]
-
-## Team Reflection Questions
-
-### 1. What did you contribute to the final two weeks?
-
-Each team member:
-- **[Team Member 1]:** [Contributions to demo prep/rehearsal]
-- **[Team Member 2]:** [Contributions to edge case testing/fixes]
-- **[Team Member 3]:** [Contributions to Ansible verification]
-- **[Team Member 4]:** [Contributions to demo execution]
-
-### 2. What is the most important achievement of this track?
-
-[Team consensus: e.g., "Building a fully reproducible ML pipeline that can be
-stood up from scratch in 10 minutes via Ansible."]
-
-### 3. What would you do differently if you started the track over?
-
-[Reflections on process, architecture decisions, tool choices]
-
-## Course Reflection
-
-### MLflow and Experiment Tracking
-- How useful was MLflow for managing experiments?
-- What alternatives would you consider?
-
-### FastAPI and Microservices
-- How easy was it to integrate FastAPI with Flask?
-- What about latency and performance?
-
-### Ansible and Reproducibility
-- How confident are you in the playbook?
-- What would make it even more robust?
-
-### Overall Track Experience
-- Was this the right level of difficulty?
-- Would you use these tools in a real project?
-
-## Lessons for Future Teams
-
-[Advice to future students taking Track 4:
-- Start with a simple model first, then iterate
-- Test the FastAPI integration early
-- Don't underestimate the time for Ansible debugging
-- Keep demo script simple and rehearsed
-]
-
-## Final Status
-
-**Track Completion:** 100%
-**Confidence in Pipeline:** High / Medium / Low
-**Ready for Production:** Yes / With caveats / No
-```
-
-### Commit Final Files
+#### Validation Check: Post-Rebuild Pipeline Health
 
 ```bash
-git add week-14/ docs/
-git commit -m "Week 14: Demo Day execution, final documentation"
-git push origin main
+./scripts/check-week-14.sh
 ```
 
-## Deliverables Checklist
+This confirms: `week-14/demo-day-log.md` and final documentation files exist, both
+MLflow and FastAPI respond healthy, a model is registered in MLflow, the end-to-end
+pipeline test passes, and git is clean. Cross-check anything it can't verify
+automatically against `docs/qa-report-14.md` — in particular, that the
+demo actually covered all five components and that instructor feedback got captured.
 
-By end of Week 14 (Demo Day), you must have:
+---
 
-- [ ] Container wiped clean (no services running)
-- [ ] Ansible playbook rebuilt entire environment from scratch
-- [ ] MLflow service started automatically
-- [ ] FastAPI service started automatically
-- [ ] Flask application running
-- [ ] Model retrained and registered
-- [ ] End-to-end pipeline verified (all tests passing)
-- [ ] Demo executed successfully in front of instructor
-- [ ] `week-14/demo-day-log.md` completed with demo results
-- [ ] `docs/sprint-7-retrospective.md` completed
-- [ ] All files committed to git
-- [ ] Repository clean and ready for submission
+### Deliverables
 
-## Verification Commands
+- [ ] Container wiped clean (verified both services unreachable)
+- [ ] Ansible playbook rebuilt the entire environment from scratch (`failed=0`, `unreachable=0`)
+- [ ] Model retrained and re-registered post-rebuild
+- [ ] End-to-end pipeline verified (`week-12/test-pipeline.sh` all green)
+- [ ] Demo executed in front of the instructor
+- [ ] `week-14/demo-day-log.md` completed with full timeline and instructor feedback
+- [ ] `docs/sprint-14-retrospective.md` completed by the whole team
+- [ ] All files committed and pushed; `git status` clean
 
-**Complete rebuild readiness:**
+---
 
-```bash
-# Wipe
-sudo rm -rf /opt/mlflow/* /opt/inference/*
+### Track Wrap-Up
 
-# Rebuild
-ansible-playbook -i ansible/inventory ansible/site.yml
+Track 4 is complete once Demo Day is done and documented. Before you close out:
 
-# Verify
-curl -s http://localhost:5001/health | grep -q ok && \
-curl -s http://localhost:8000/health | grep -q ok && \
-echo "READY FOR DEMO"
-```
+- Finish the **Post-Track Reflection** in the Notes section of
+  `docs/sprint-14-retrospective.md` — what worked, what you'd change, and total time
+  invested per week — while it's still fresh.
+- Confirm `docs/sprint-14-retrospective.md` captures each member's contribution across
+  the final two weeks, not just a group summary.
+- Do a final read-through of `docs/qa-report-10.md` through `docs/qa-report-14.md` and
+  confirm anything still open that you can now confirm is done.
+- If your team's ADR (`week-10/adr.md`) ended up diverging from what you actually
+  shipped — a different model target, a different backend store, a different Flask UI
+  approach — add a short note to the **Consequences** section explaining what changed
+  and why. That record is more useful to future teams than a decision that reads as
+  though it was never revisited.
 
-**Demo execution:**
+There is no Week 15. This concludes Track 4: Machine Learning and AI.
 
-```bash
-bash week-12/test-pipeline.sh
-# All four checks must show: OK
-```
-
-## Appendix: Troubleshooting Demo Day
-
-### Issue: MLflow Service Won't Start
-
-**Symptoms:** `curl http://localhost:5001/health` fails
-
-**Diagnosis:**
-
-```bash
-sudo systemctl status mlflow
-sudo journalctl -u mlflow -n 20
-```
-
-**Common causes:**
-
-1. **Port 5001 already in use:**
-   ```bash
-   lsof -i :5001
-   # Kill process or change port in template
-   ```
-
-2. **/opt/mlflow directory doesn't exist:**
-   ```bash
-   sudo mkdir -p /opt/mlflow
-   sudo chmod 755 /opt/mlflow
-   sudo systemctl restart mlflow
-   ```
-
-3. **Permissions issue:**
-   ```bash
-   sudo chown root:root /opt/mlflow
-   sudo chmod 755 /opt/mlflow
-   ```
-
-### Issue: FastAPI Service Won't Start
-
-**Symptoms:** `curl http://localhost:8000/health` fails
-
-**Diagnosis:**
-
-```bash
-sudo systemctl status fastapi
-sudo journalctl -u fastapi -n 20
-```
-
-**Common causes:**
-
-1. **Model not found:** MLflow needs to have a trained model registered
-   ```bash
-   cd week-11
-   python3 train-model.py
-   ```
-
-2. **Port 8000 already in use:**
-   ```bash
-   lsof -i :8000
-   ```
-
-3. **Python module not installed:**
-   ```bash
-   pip install fastapi uvicorn mlflow scikit-learn
-   ```
-
-### Issue: Model Training Fails
-
-**Symptoms:** `python3 week-11/train-model.py` errors
-
-**Diagnosis:**
-
-```bash
-# Check PostgreSQL
-psql -U appuser -d statustracker -c "SELECT COUNT(*) FROM incidents;"
-# Should return a number > 0
-
-# Check Python environment
-python3 -c "import mlflow, sklearn, pandas; print('OK')"
-```
-
-**Common causes:**
-
-1. **PostgreSQL not running:**
-   ```bash
-   docker ps | grep postgres
-   # If not running, restart container
-   ```
-
-2. **Connection string wrong:** Update in `train-model.py`
-
-3. **Dependencies missing:**
-   ```bash
-   pip install mlflow scikit-learn pandas sqlalchemy psycopg2-binary
-   ```
-
-### Issue: Concurrent Requests Fail
-
-**Symptoms:** Multiple curl requests to FastAPI return 503 or 500
-
-**Diagnosis:** FastAPI may be overloaded or MLflow connection pooling issue
-
-**Solution:** Increase gunicorn workers in MLflow service template:
-
-```ini
-ExecStart=/usr/bin/python3 -m mlflow server \
-  --host 0.0.0.0 \
-  --port 5001 \
-  --backend-store-uri file:/opt/mlflow \
-  --default-artifact-root /opt/mlflow/artifacts \
-  --workers 4
-```
-
-Restart MLflow:
-
-```bash
-sudo systemctl restart mlflow
-```
-
-## Final Checklist Before Demo
-
-- [ ] Container wiped
-- [ ] Ansible playbook completed successfully
-- [ ] All services running and responding to health checks
-- [ ] Model trained and registered
-- [ ] Demo script printed or on reference screen
-- [ ] All team members know their roles
-- [ ] Backup demonstrator ready
-- [ ] Contingency plan if services fail
-- [ ] Screenshots ready for reference
-- [ ] Timer set for 10-15 minute demo
-
-You're ready for Demo Day!
+---

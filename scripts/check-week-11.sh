@@ -16,10 +16,10 @@ PASSED=0
 check_file() {
     if [ -f "$1" ]; then
         echo "[PASS] File exists: $1"
-        ((PASSED++))
+        PASSED=$((PASSED + 1))
     else
         echo "[FAIL] File missing: $1"
-        ((FAILED++))
+        FAILED=$((FAILED + 1))
     fi
 }
 
@@ -41,10 +41,10 @@ echo ""
 echo "3. Checking MLflow service..."
 if curl -s http://localhost:5001/health | grep -q '"status"'; then
     echo "[PASS] MLflow health check passed"
-    ((PASSED++))
+    PASSED=$((PASSED + 1))
 else
     echo "[FAIL] MLflow health check failed or service not running"
-    ((FAILED++))
+    FAILED=$((FAILED + 1))
 fi
 echo ""
 
@@ -52,10 +52,10 @@ echo ""
 echo "4. Checking Ansible role content..."
 if grep -q "mlflow" ansible/roles/mlflow/tasks/main.yml; then
     echo "[PASS] MLflow installation tasks found"
-    ((PASSED++))
+    PASSED=$((PASSED + 1))
 else
     echo "[FAIL] MLflow installation tasks missing"
-    ((FAILED++))
+    FAILED=$((FAILED + 1))
 fi
 echo ""
 
@@ -63,10 +63,10 @@ echo ""
 echo "5. Checking site.yml includes mlflow role..."
 if grep -q "mlflow" ansible/site.yml; then
     echo "[PASS] MLflow role included in site.yml"
-    ((PASSED++))
+    PASSED=$((PASSED + 1))
 else
     echo "[FAIL] MLflow role not included in site.yml"
-    ((FAILED++))
+    FAILED=$((FAILED + 1))
 fi
 echo ""
 
@@ -76,14 +76,14 @@ if [ -d ".git" ]; then
     COMMITS=$(git log --oneline | wc -l)
     if [ "$COMMITS" -gt 0 ]; then
         echo "[PASS] Git commits found ($COMMITS commits)"
-        ((PASSED++))
+        PASSED=$((PASSED + 1))
     else
         echo "[FAIL] No git commits found"
-        ((FAILED++))
+        FAILED=$((FAILED + 1))
     fi
 else
     echo "[FAIL] Git repository not initialized"
-    ((FAILED++))
+    FAILED=$((FAILED + 1))
 fi
 echo ""
 
